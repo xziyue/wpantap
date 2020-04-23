@@ -8,6 +8,7 @@
 #include <linux/timer.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
+#include <linux/miscdevice.h>
 #include <linux/netdevice.h>
 #include <linux/device.h>
 #include <linux/spinlock.h>
@@ -88,6 +89,25 @@ static void *ringbuf_ll(struct ringbuf_t *rb, void *anchor, int offset)
 	return rb->buf + ((anchor - rb->buf) + offset) % rb->size;
 }
 
+// returns 0 if a data block is poped
+static int ringbuf_pop_data(struct ringbuf_t *rb)
+{	
+	int *size;
+	int total_size;
+	
+	if(ringbuf_is_empty(rb) == 1){
+		return 1;
+	}
+	
+	// find the length of current buffer
+	size = rb->head;
+	total_size = *size + sizeof(int);
+	
+	rb->head = ringbuf_ll(rb, rb->head, total_size);
+
+	return 0;
+}
+
 
 // returns 0 if the insertion is successful
 static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
@@ -106,7 +126,19 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	if(total_size > rb->capacity){
 		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
 		return 1;
-    }
+	}
+
+	// check bytes free
+	if(total_size > ringbuf_bytes_free(rb)){
+		// pop data until there is enough space
+		while(total_size > ringbuf_bytes_free(rb)){
+			i = ringbuf_pop_data(rb);
+			if (i == 1){
+				printk(KERN_ERR "error while popping buffer for insertion\n");
+				return 1;
+			}
+		}
+	}
 
 	// insert data into the ring buffer
 	temp = (char*)&size;
@@ -126,25 +158,6 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 
 	return 0;
 }
-
-
-static void ringbuf_pop_data(struct ringbuf_t *rb)
-{	
-	int *size;
-	int total_size;
-	
-	if(ringbuf_is_empty(rb) == 1){
-		return;
-	}
-	
-	// find the length of current buffer
-	size = rb->head;
-	total_size = *size + sizeof(int);
-	
-	rb->head = ringbuf_ll(rb, rb->head, total_size);
-}
-
-
 
 
 
@@ -391,26 +404,79 @@ static void fake_remove_module(void)
 }
 
 
+static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
+{
+	return 0;
+}
+
+static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
+{
+	return 0;
+}
+
+#define WPANTAP_MINOR 1324850
+
+static const struct file_operations wpantap_fops = {
+	.owner	= THIS_MODULE,
+	.llseek = no_llseek,
+	.read_iter  = wpantap_chr_read_iter,
+	.write_iter = wpantap_chr_write_iter,
+	//.poll	= tun_chr_poll,
+	//.unlocked_ioctl	= tun_chr_ioctl,
+};
+
+static struct miscdevice wpantap_miscdev = {
+	.minor = MISC_DYNAMIC_MINOR,
+	.name = "wpantap",
+	.nodename = "net/wpantap",
+	.fops = &wpantap_fops,
+};
+
+
+static int file_dev_init(void)
+{
+	int ret = misc_register(&wpantap_miscdev);
+	if(ret != 0){
+		printk(KERN_ERR "unable to register misc device\n");
+	}
+	return ret;
+}
+
+static void file_dev_deinit(void)
+{
+	misc_deregister(&wpantap_miscdev);
+}
+
+
+
 static __init int wpantap_init(void)
 {	
 	int err;
 	err = fakelb_init_module();
-	if(err != 0){
-		return err;
-	}
+	if(err != 0) goto err_fakelb;
 
 	err = ringbuf_init(&rbuf);
-	if(err != 0){
-		return err;
-	}
+	if(err != 0) goto err_ringbuf;
+	
+	err = file_dev_init();
+	if(err != 0) goto err_miscdev;
 
 	return 0;
+
+err_miscdev:
+	file_dev_deinit();
+err_ringbuf:
+	ringbuf_deinit(&rbuf);
+err_fakelb:
+	fake_remove_module();
+	return err;
 }
 
 static __exit void wpantap_deinit(void)
 {
 	fake_remove_module();
 	ringbuf_deinit(&rbuf);
+	file_dev_deinit();
 }
 
 module_init(wpantap_init);
