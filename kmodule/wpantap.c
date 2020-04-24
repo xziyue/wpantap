@@ -612,6 +612,27 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	return 0;
 }
 
+static int rx_irqsafe(char *raw_pkt, int len) {
+
+	struct sk_buff *newskb = dev_alloc_skb(len);
+	skb_put_data(newskb, raw_pkt, len);
+
+	struct fakelb_phy *phy;
+
+	read_lock_bh(&fakelb_ifup_phys_lock);
+
+	/*Since we only have one virtual interface, we will only get one phy, that is the current phy.
+	* We may come up with better way to get the pointer of the current phy.
+	*/
+	list_for_each_entry(phy, &fakelb_ifup_phys, list_ifup) {
+		if (newskb)
+			ieee802154_rx_irqsafe(phy->hw, newskb, 0xcc);
+	}
+
+	read_unlock_bh(&fakelb_ifup_phys_lock);
+
+	return 0;
+}
 
 static const struct file_operations wpantap_fops = {
 	.owner	= THIS_MODULE,
