@@ -59,18 +59,20 @@ static void ringbuf_deinit(struct ringbuf_t *rb)
 }
 
 
-static int ringbuf_bytes_free(struct ringbuf_t *rb)
+static int ringbuf_bytes_used(struct ringbuf_t *rb)
 {
-	if(rb->head >= rb->tail){
-		return rb->capacity - (rb->head - rb->tail);
-	}else{
-		return rb->tail - rb->head - 1;
+	if(rb->tail >= rb->head){
+		return rb->tail - rb->head;
+	}
+	else{
+		return rb->capacity - (rb->head - rb->tail - 1);
 	}
 }
 
-static int ringbuf_bytes_used(struct ringbuf_t *rb)
+
+static int ringbuf_bytes_free(struct ringbuf_t *rb)
 {
-	return rb->capacity - ringbuf_bytes_free(rb);
+	return rb->capacity - ringbuf_bytes_used(rb);
 }
 
 
@@ -86,7 +88,7 @@ static int ringbuf_is_empty(struct ringbuf_t *rb)
  */
 static void *ringbuf_ll(struct ringbuf_t *rb, void *anchor, int offset)
 {
-	return rb->buf + ((anchor - rb->buf) + offset) % rb->size;
+	return rb->buf + (((anchor - rb->buf) + offset) % rb->size);
 }
 
 static int ringbuf_get_first_data_size(struct ringbuf_t *rb)
@@ -119,6 +121,20 @@ static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
 	return size;
 }
 
+static void print_ringbuf_stat(void)
+{
+	struct ringbuf_t *rb = &rbuf;
+	size_t htdist = rb->tail - rb->head;
+	printk(KERN_DEBUG "ringbuf stat h:%lu t:%lu d:%lu u:%lu f:%lu c:%d\n",
+		(size_t)rb->head,
+		(size_t)rb->tail,
+		htdist,
+		(size_t)ringbuf_bytes_used(rb),
+		(size_t)ringbuf_bytes_free(rb),
+		rb->capacity);
+}
+
+
 // returns 0 if a data block is poped
 static int ringbuf_pop_data(struct ringbuf_t *rb)
 {	
@@ -126,6 +142,7 @@ static int ringbuf_pop_data(struct ringbuf_t *rb)
 	int total_size;
 	
 	printk(KERN_DEBUG "popping data from ring buffer...\n");
+	print_ringbuf_stat();
 
 	if(size == 0){
 		return 1;
@@ -135,6 +152,7 @@ static int ringbuf_pop_data(struct ringbuf_t *rb)
 	total_size = size + sizeof(int);
 	
 	rb->head = ringbuf_ll(rb, rb->head, total_size);
+	print_ringbuf_stat();
 
 	return 0;
 }
@@ -150,11 +168,18 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	char *temp;
 	int i;
 	
+	if(size == 0){
+		printk(KERN_WARNING "trying to insert a buffer of size 0, discarded\n");
+		return 0;
+	}
+
 	cdata = (char*)data;
 	total_size = sizeof(int) + size;
 	rbtail = rb->tail;
 	
-	printk(KERN_DEBUG "inserting data into ring buffer...\n");
+	
+	printk(KERN_DEBUG "inserting data (%d) into ring buffer...\n", size);
+	print_ringbuf_stat();
 
 	if(total_size > rb->capacity){
 		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
@@ -187,12 +212,83 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	}
 
 	// modify tail
-	rb->tail = (void*)rbdata;
+	rb->tail = (void*)rbdata + 1;
+	print_ringbuf_stat();	
 
 	return 0;
 }
 
+// returns 0 if the insertion is successful
+static int ringbuf_insert_data2(struct ringbuf_t *rb, int size1, void *data1, int size2, void *data2)
+{
+	int total_size;
+	int size = size1 + size2;
+	char *cdata1, *cdata2;
+	char *rbdata;
+	void *rbtail;
+	char *temp;
+	int i;
+	int prev_sum;
+	
+	if(size == 0){
+		printk(KERN_WARNING "trying to insert a buffer of size 0, discarded\n");
+		return 0;
+	}
 
+	cdata1 = (char*)data1;
+	cdata2 = (char*)data2;
+	total_size = sizeof(int) + size;
+	rbtail = rb->tail;
+	
+	printk(KERN_DEBUG "inserting data (%d) into ring buffer...\n", size);
+	print_ringbuf_stat();
+
+	if(total_size > rb->capacity){
+		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
+		return 1;
+	}
+
+	// check bytes free
+	if(total_size > ringbuf_bytes_free(rb)){
+		// pop data until there is enough space
+		while(total_size > ringbuf_bytes_free(rb)){
+			i = ringbuf_pop_data(rb);
+			if (i != 0){
+				printk(KERN_ERR "error while popping buffer for insertion\n");
+				return 1;
+			}
+		}
+	}
+
+	// insert data into the ring buffer
+	temp = (char*)&size;
+	
+	for(i = 0; i < sizeof(int); ++i){
+		rbdata = (char*)ringbuf_ll(rb, rbtail, i);
+		*rbdata = temp[i];
+	}
+
+	prev_sum = sizeof(int);
+
+	for(i = 0; i < size1; ++i){
+		rbdata = (char*)ringbuf_ll(rb, rbtail, i + prev_sum);
+		*rbdata = cdata1[i];
+	}
+	
+	prev_sum += size1;
+	
+	for(i = 0; i < size2; ++i){
+		rbdata = (char*)ringbuf_ll(rb, rbtail, i + prev_sum);
+		*rbdata = cdata2[i];
+	}
+
+	// modify tail
+	rb->tail = (void*)rbdata + 1;
+
+	print_ringbuf_stat();
+
+	return 0;
+}
 
 // only create one device
 static int numlbs = 1;
@@ -237,13 +333,16 @@ static int fakelb_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 {
 	struct fakelb_phy *current_phy = hw->priv, *phy;
+	int head_len;
 
 	read_lock_bh(&fakelb_ifup_phys_lock);
 	WARN_ON(current_phy->suspended);
 	
     	printk(KERN_DEBUG "sending packet with WPAN device...\n");
+	printk(KERN_DEBUG "skb len:%d data_len %d\n", skb->len, skb->data_len);
+	head_len = skb->len - skb->data_len;
     	spin_lock_bh(&ringbuf_spin);
-	ringbuf_insert_data(&rbuf, skb->data_len, skb->data);
+	ringbuf_insert_data2(&rbuf, head_len, skb->head, skb->data_len, skb->data);
 	spin_unlock_bh(&ringbuf_spin);
 	
 	read_unlock_bh(&fakelb_ifup_phys_lock);
@@ -528,6 +627,7 @@ static void file_dev_deinit(void)
 
 static __init int wpantap_init(void)
 {	
+	printk(KERN_DEBUG "prepare to initialize wpantap...\n");
 	int err;
 	err = fakelb_init_module();
 	if(err != 0) goto err_fakelb;
