@@ -89,19 +89,50 @@ static void *ringbuf_ll(struct ringbuf_t *rb, void *anchor, int offset)
 	return rb->buf + ((anchor - rb->buf) + offset) % rb->size;
 }
 
+static int ringbuf_get_first_data_size(struct ringbuf_t *rb)
+{
+	int *size;
+	if (ringbuf_is_empty(rb) == 1){
+		printk(KERN_ERR "no data is avaliable in the buffer!\n");
+		return 0;
+	}
+	size = (int*)rb->head;
+	return *size;
+}
+
+
+static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
+{
+	int i;
+	int size = ringbuf_get_first_data_size(rb);
+	char *cp = (char*)p;
+	
+	if (size == 0){
+		printk(KERN_ERR "data copy failed!\n");
+		return 0;
+	}
+	
+	for(i = 0; i < size; ++i){
+		cp[i] = *(char*)ringbuf_ll(rb, rb->head, i + sizeof(int));
+	}
+	
+	return size;
+}
+
 // returns 0 if a data block is poped
 static int ringbuf_pop_data(struct ringbuf_t *rb)
 {	
-	int *size;
+	int size = ringbuf_get_first_data_size(rb);
 	int total_size;
 	
-	if(ringbuf_is_empty(rb) == 1){
+	printk(KERN_DEBUG "popping data from ring buffer...\n");
+
+	if(size == 0){
 		return 1;
 	}
 	
 	// find the length of current buffer
-	size = rb->head;
-	total_size = *size + sizeof(int);
+	total_size = size + sizeof(int);
 	
 	rb->head = ringbuf_ll(rb, rb->head, total_size);
 
@@ -123,6 +154,8 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	total_size = sizeof(int) + size;
 	rbtail = rb->tail;
 	
+	printk(KERN_DEBUG "inserting data into ring buffer...\n");
+
 	if(total_size > rb->capacity){
 		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
 		return 1;
@@ -133,7 +166,7 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 		// pop data until there is enough space
 		while(total_size > ringbuf_bytes_free(rb)){
 			i = ringbuf_pop_data(rb);
-			if (i == 1){
+			if (i != 0){
 				printk(KERN_ERR "error while popping buffer for insertion\n");
 				return 1;
 			}
@@ -207,18 +240,12 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 	read_lock_bh(&fakelb_ifup_phys_lock);
 	WARN_ON(current_phy->suspended);
-	list_for_each_entry(phy, &fakelb_ifup_phys, list_ifup) {
-		if (current_phy == phy)
-			continue;
-
-		if (current_phy->page == phy->page &&
-		    current_phy->channel == phy->channel) {
-			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
-
-			if (newskb)
-				ieee802154_rx_irqsafe(phy->hw, newskb, 0xcc);
-		}
-	}
+	
+    	printk(KERN_DEBUG "sending packet with WPAN device...\n");
+    	spin_lock_bh(&ringbuf_spin);
+	ringbuf_insert_data(&rbuf, skb->data_len, skb->data);
+	spin_unlock_bh(&ringbuf_spin);
+	
 	read_unlock_bh(&fakelb_ifup_phys_lock);
 
 	ieee802154_xmit_complete(hw, skb, false);
@@ -406,7 +433,58 @@ static void fake_remove_module(void)
 
 static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
-	return 0;
+	struct file *file = iocb->ki_filp;
+	ssize_t len = iov_iter_count(to);
+	ssize_t size = 0;
+	ssize_t ret;
+	int rbempty;
+	void *data;
+
+	if(!file){
+		return -EBADFD;
+	}
+	
+	printk(KERN_DEBUG "entering read opration\n");
+
+	while(1){
+		// busy wait for data
+		
+		printk(KERN_DEBUG "executing read busy-wait\n");
+		spin_lock_bh(&ringbuf_spin);
+
+		rbempty = ringbuf_is_empty(&rbuf);
+		if (rbempty == 0){
+			// if there is data to fetch
+			printk(KERN_DEBUG "readable buffer found in ring buffer\n");
+			size = ringbuf_get_first_data_size(&rbuf);
+			if (size == 0){
+				printk(KERN_ERR "no data in the buffer to fetch\n");
+				goto term;
+			}
+			
+			data = kmalloc(size, GFP_KERNEL);
+			ringbuf_copy_first_data(&rbuf, data);
+			copy_to_iter(data, size, to);
+			kfree(data);
+			
+			ringbuf_pop_data(&rbuf);
+			
+			goto term;
+		}
+		spin_unlock_bh(&ringbuf_spin);
+		schedule();
+	}
+	
+	
+term:
+	spin_unlock_bh(&ringbuf_spin);
+	ret = min_t(ssize_t, size, len);
+	
+	if(ret > 0){
+		iocb->ki_pos = ret;
+	}
+	
+	return size;
 }
 
 static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
@@ -414,7 +492,6 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	return 0;
 }
 
-#define WPANTAP_MINOR 1324850
 
 static const struct file_operations wpantap_fops = {
 	.owner	= THIS_MODULE,
@@ -460,6 +537,8 @@ static __init int wpantap_init(void)
 	
 	err = file_dev_init();
 	if(err != 0) goto err_miscdev;
+	
+	printk(KERN_INFO "wpantap started succesfully\n");
 
 	return 0;
 
@@ -477,6 +556,7 @@ static __exit void wpantap_deinit(void)
 	fake_remove_module();
 	ringbuf_deinit(&rbuf);
 	file_dev_deinit();
+	printk(KERN_INFO "wpantap exited succesfully\n");
 }
 
 module_init(wpantap_init);

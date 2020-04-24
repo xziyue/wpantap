@@ -4,8 +4,14 @@ ifneq ($(KERNELRELEASE),)
 else
 	KERNELDIR?=/lib/modules/$(shell uname -r)/build
 	PWD:=$(shell pwd)
-default:
+build default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
 endif
 clean:
-	$(RM) -f *.o *.cmd *.order *.mod.c *.symvers *.ko *.mod
+	$(RM) *.o *.cmd *.order *.mod.c *.symvers *.ko *.mod
+uninstall:
+	$(RM) /lib/modules/$(shell uname -r)/wpantap.ko
+install: build
+	ln -s $(shell realpath ./wpantap.ko) /lib/modules/$(shell uname -r)
+	depmod -a
+	
