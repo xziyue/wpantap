@@ -109,11 +109,21 @@ static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
 	int size = ringbuf_get_first_data_size(rb);
 	char *cp = (char*)p;
 	
+	printk(KERN_DEBUG "copying data from ring buf\n");
+	
 	if (size == 0){
 		printk(KERN_ERR "data copy failed!\n");
 		return 0;
 	}
 	
+	/*
+	printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n",
+		*(char*)ringbuf_ll(rb, rb->head, sizeof(int)),
+		*(char*)ringbuf_ll(rb, rb->head, sizeof(int) + 1),
+		*(char*)ringbuf_ll(rb, rb->head, sizeof(int) + 2),
+		*(char*)ringbuf_ll(rb, rb->head, sizeof(int) + 3));
+	*/
+
 	for(i = 0; i < size; ++i){
 		cp[i] = *(char*)ringbuf_ll(rb, rb->head, i + sizeof(int));
 	}
@@ -269,11 +279,19 @@ static int ringbuf_insert_data2(struct ringbuf_t *rb, int size1, void *data1, in
 	}
 
 	prev_sum = sizeof(int);
-
+	
 	for(i = 0; i < size1; ++i){
 		rbdata = (char*)ringbuf_ll(rb, rbtail, i + prev_sum);
 		*rbdata = cdata1[i];
 	}
+	
+	/*
+	printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n",
+			*(char*)ringbuf_ll(rb, rbtail, prev_sum),
+			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 1),
+			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 2),
+			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 3));
+	*/
 	
 	prev_sum += size1;
 	
@@ -338,11 +356,14 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	read_lock_bh(&fakelb_ifup_phys_lock);
 	WARN_ON(current_phy->suspended);
 	
+	
     	printk(KERN_DEBUG "sending packet with WPAN device...\n");
 	printk(KERN_DEBUG "skb len:%d data_len %d\n", skb->len, skb->data_len);
+	//printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n", (char*)skb->data[0], (char*)skb->data[1], (char*)skb->data[2], (char*)skb->data[3]);
+
 	head_len = skb->len - skb->data_len;
     	spin_lock_bh(&ringbuf_spin);
-	ringbuf_insert_data2(&rbuf, head_len, skb->head, skb->data_len, skb->data);
+	ringbuf_insert_data(&rbuf, skb->len, skb->data);
 	spin_unlock_bh(&ringbuf_spin);
 	
 	read_unlock_bh(&fakelb_ifup_phys_lock);
@@ -548,7 +569,7 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	while(1){
 		// busy wait for data
 		
-		printk(KERN_DEBUG "executing read busy-wait\n");
+		//printk(KERN_DEBUG "executing read busy-wait\n");
 		spin_lock_bh(&ringbuf_spin);
 
 		rbempty = ringbuf_is_empty(&rbuf);

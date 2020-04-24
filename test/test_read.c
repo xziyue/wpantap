@@ -26,7 +26,12 @@ int main(){
 	
 	char buf[300];
 	int bytes = read(fd, buf, 300);
-	printf("read %d bytes\n", bytes);
+	//printf("read %d bytes\n", bytes);
+
+	for(int i = 0; i < bytes; ++i){
+		putchar(buf[i]);
+	}
+	
 
 	close(fd);
 }
