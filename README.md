@@ -4,7 +4,7 @@ Our goal: to bridge simulated WPAN devices together.
 
 Authors:
 - [Ziyue "Alan" Xiang](https://www.alanshawn.com)
-- [Li Li](https://www.githubcom/Li-Syr)
+- [Li Li](https://www.github.com/Li-Syr)
 
 ## Progress
 
