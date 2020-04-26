@@ -6,7 +6,6 @@ else
 	PWD:=$(shell pwd)
 build default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
-endif
 clean:
 	$(RM) *.o *.cmd *.order *.mod.c *.symvers *.ko *.mod
 uninstall:
@@ -14,4 +13,6 @@ uninstall:
 install: build
 	ln -s $(shell realpath ./wpantap.ko) /lib/modules/$(shell uname -r)
 	depmod -a
+endif
+
 	

@@ -39,8 +39,8 @@ static int ringbuf_init(struct ringbuf_t *rb)
 {
 	rb->buf = kmalloc(RINGBUF_SIZE, GFP_KERNEL);
 	if(rb->buf == NULL){
-		printk(KERN_ERR "unable to allocate %d bytes for ring buffer.\n", RINGBUF_SIZE);
-		return 1;
+		printk(KERN_ERR "wpantap: unable to allocate %d bytes for ring buffer.\n", RINGBUF_SIZE);
+		return -ENOMEM;
 	}
 	
 	rb->size = RINGBUF_SIZE;
@@ -95,7 +95,7 @@ static int ringbuf_get_first_data_size(struct ringbuf_t *rb)
 {
 	int *size;
 	if (ringbuf_is_empty(rb) == 1){
-		printk(KERN_ERR "no data is avaliable in the buffer!\n");
+		printk(KERN_ERR "wpantap: no data is avaliable in the buffer!\n");
 		return 0;
 	}
 	size = (int*)rb->head;
@@ -109,10 +109,10 @@ static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
 	int size = ringbuf_get_first_data_size(rb);
 	char *cp = (char*)p;
 	
-	printk(KERN_DEBUG "copying data from ring buf\n");
+	printk(KERN_DEBUG "wpantap: copying data from ring buf\n");
 	
 	if (size == 0){
-		printk(KERN_ERR "data copy failed!\n");
+		printk(KERN_ERR "wpantap: data copy failed!\n");
 		return 0;
 	}
 	
@@ -135,7 +135,7 @@ static void print_ringbuf_stat(void)
 {
 	struct ringbuf_t *rb = &rbuf;
 	size_t htdist = rb->tail - rb->head;
-	printk(KERN_DEBUG "ringbuf stat h:%lu t:%lu d:%lu u:%lu f:%lu c:%d\n",
+	printk(KERN_DEBUG "wpantap: ringbuf stat h:%lu t:%lu d:%lu u:%lu f:%lu c:%d\n",
 		(size_t)rb->head,
 		(size_t)rb->tail,
 		htdist,
@@ -151,7 +151,7 @@ static int ringbuf_pop_data(struct ringbuf_t *rb)
 	int size = ringbuf_get_first_data_size(rb);
 	int total_size;
 	
-	printk(KERN_DEBUG "popping data from ring buffer...\n");
+	printk(KERN_DEBUG "wpantap: popping data from ring buffer...\n");
 	print_ringbuf_stat();
 
 	if(size == 0){
@@ -179,7 +179,7 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	int i;
 	
 	if(size == 0){
-		printk(KERN_WARNING "trying to insert a buffer of size 0, discarded\n");
+		printk(KERN_WARNING "wpantap: trying to insert a buffer of size 0, discarded\n");
 		return 0;
 	}
 
@@ -188,11 +188,11 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	rbtail = rb->tail;
 	
 	
-	printk(KERN_DEBUG "inserting data (%d) into ring buffer...\n", size);
+	printk(KERN_DEBUG "wpantap: inserting data (%d) into ring buffer...\n", size);
 	print_ringbuf_stat();
 
 	if(total_size > rb->capacity){
-		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
+		printk(KERN_ERR "wpantap: the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
 		return 1;
 	}
 
@@ -202,7 +202,7 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 		while(total_size > ringbuf_bytes_free(rb)){
 			i = ringbuf_pop_data(rb);
 			if (i != 0){
-				printk(KERN_ERR "error while popping buffer for insertion\n");
+				printk(KERN_ERR "wpantap: error while popping buffer for insertion\n");
 				return 1;
 			}
 		}
@@ -228,85 +228,7 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	return 0;
 }
 
-// returns 0 if the insertion is successful
-static int ringbuf_insert_data2(struct ringbuf_t *rb, int size1, void *data1, int size2, void *data2)
-{
-	int total_size;
-	int size = size1 + size2;
-	char *cdata1, *cdata2;
-	char *rbdata;
-	void *rbtail;
-	char *temp;
-	int i;
-	int prev_sum;
-	
-	if(size == 0){
-		printk(KERN_WARNING "trying to insert a buffer of size 0, discarded\n");
-		return 0;
-	}
 
-	cdata1 = (char*)data1;
-	cdata2 = (char*)data2;
-	total_size = sizeof(int) + size;
-	rbtail = rb->tail;
-	
-	printk(KERN_DEBUG "inserting data (%d) into ring buffer...\n", size);
-	print_ringbuf_stat();
-
-	if(total_size > rb->capacity){
-		printk(KERN_ERR "the total size of data (%d) is bigger than the capacity of ring buffer (%d)\n", total_size, rb->capacity);
-		return 1;
-	}
-
-	// check bytes free
-	if(total_size > ringbuf_bytes_free(rb)){
-		// pop data until there is enough space
-		while(total_size > ringbuf_bytes_free(rb)){
-			i = ringbuf_pop_data(rb);
-			if (i != 0){
-				printk(KERN_ERR "error while popping buffer for insertion\n");
-				return 1;
-			}
-		}
-	}
-
-	// insert data into the ring buffer
-	temp = (char*)&size;
-	
-	for(i = 0; i < sizeof(int); ++i){
-		rbdata = (char*)ringbuf_ll(rb, rbtail, i);
-		*rbdata = temp[i];
-	}
-
-	prev_sum = sizeof(int);
-	
-	for(i = 0; i < size1; ++i){
-		rbdata = (char*)ringbuf_ll(rb, rbtail, i + prev_sum);
-		*rbdata = cdata1[i];
-	}
-	
-	/*
-	printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n",
-			*(char*)ringbuf_ll(rb, rbtail, prev_sum),
-			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 1),
-			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 2),
-			*(char*)ringbuf_ll(rb, rbtail, prev_sum + 3));
-	*/
-	
-	prev_sum += size1;
-	
-	for(i = 0; i < size2; ++i){
-		rbdata = (char*)ringbuf_ll(rb, rbtail, i + prev_sum);
-		*rbdata = cdata2[i];
-	}
-
-	// modify tail
-	rb->tail = (void*)rbdata + 1;
-
-	print_ringbuf_stat();
-
-	return 0;
-}
 
 // only create one device
 static int numlbs = 1;
@@ -357,8 +279,8 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	WARN_ON(current_phy->suspended);
 	
 	
-    	printk(KERN_DEBUG "sending packet with WPAN device...\n");
-	printk(KERN_DEBUG "skb len:%d data_len %d\n", skb->len, skb->data_len);
+    	printk(KERN_DEBUG "wpantap: sending packet with WPAN device...\n");
+	printk(KERN_DEBUG "wpantap: skb len:%d data_len %d\n", skb->len, skb->data_len);
 	//printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n", (char*)skb->data[0], (char*)skb->data[1], (char*)skb->data[2], (char*)skb->data[3]);
 
 	head_len = skb->len - skb->data_len;
@@ -502,7 +424,7 @@ static int fakelb_probe(struct platform_device *pdev)
 			goto err_slave;
 	}
 
-	dev_info(&pdev->dev, "added %i fake ieee802154 tap device(s)\n", numlbs);
+	dev_info(&pdev->dev, "wpantap: added %i fake ieee802154 tap device(s)\n", numlbs);
 	return 0;
 
 err_slave:
@@ -564,7 +486,7 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		return -EBADFD;
 	}
 	
-	printk(KERN_DEBUG "entering read opration\n");
+	printk(KERN_DEBUG "wpantap: entering read opration\n");
 
 	while(1){
 		// busy wait for data
@@ -575,14 +497,19 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		rbempty = ringbuf_is_empty(&rbuf);
 		if (rbempty == 0){
 			// if there is data to fetch
-			printk(KERN_DEBUG "readable buffer found in ring buffer\n");
+			printk(KERN_DEBUG "wpantap: readable buffer found in ring buffer\n");
 			size = ringbuf_get_first_data_size(&rbuf);
 			if (size == 0){
-				printk(KERN_ERR "no data in the buffer to fetch\n");
+				printk(KERN_ERR "wpantap: no data in the buffer to fetch\n");
 				goto term;
 			}
 			
 			data = kmalloc(size, GFP_KERNEL);
+			if(data == NULL){
+				printk(KERN_ERR "wpantap: unable to allocate %d bytes for reading\n", (int)size);
+				goto mem_err;
+			}
+			
 			ringbuf_copy_first_data(&rbuf, data);
 			copy_to_iter(data, size, to);
 			kfree(data);
@@ -605,15 +532,15 @@ term:
 	}
 	
 	return size;
+
+mem_err:
+	spin_unlock_bh(&ringbuf_spin);
+	return -ENOMEM;
 }
 
-static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
-{
-	return 0;
-}
 
-static int rx_irqsafe(char *raw_pkt, int len) {
-
+static void rx_irqsafe(char *raw_pkt, int len) {
+	// do we need to deallocate this buffer?
 	struct sk_buff *newskb = dev_alloc_skb(len);
 	skb_put_data(newskb, raw_pkt, len);
 
@@ -631,8 +558,38 @@ static int rx_irqsafe(char *raw_pkt, int len) {
 
 	read_unlock_bh(&fakelb_ifup_phys_lock);
 
-	return 0;
 }
+
+static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
+{	
+	// assume the packets acquired from user space doesn't have FCS
+	int total_len = iov_iter_count(from);
+	void *buf = kmalloc(total_len, GFP_KERNEL);
+	
+	printk(KERN_DEBUG "wpantap: entering write opration-incoming size %d\n", total_len);
+	
+	printk(KERN_DEBUG "wpantap: padding incoming user packet with 2 byte FCS...\n");
+	total_len += 2;
+	
+	if(buf == NULL){
+		printk(KERN_ERR "wpantap: unable to allocate %d bytes fo writing\n", (int)total_len);
+		return -ENOMEM;
+	}
+	
+	// get info from user space
+	copy_from_iter(buf, total_len, from);
+	
+	// set FCS to 0
+	((char*)buf)[total_len - 1] = '\0';
+	((char*)buf)[total_len - 2] = '\0';
+	
+	rx_irqsafe(buf, total_len);
+
+	kfree(buf);	
+
+	return total_len;
+}
+
 
 static const struct file_operations wpantap_fops = {
 	.owner	= THIS_MODULE,
@@ -652,10 +609,11 @@ static struct miscdevice wpantap_miscdev = {
 
 
 static int file_dev_init(void)
-{
+{	
+	
 	int ret = misc_register(&wpantap_miscdev);
 	if(ret != 0){
-		printk(KERN_ERR "unable to register misc device\n");
+		printk(KERN_ERR "wpantap: unable to register misc device\n");
 	}
 	return ret;
 }
@@ -669,7 +627,7 @@ static void file_dev_deinit(void)
 
 static __init int wpantap_init(void)
 {	
-	printk(KERN_DEBUG "prepare to initialize wpantap...\n");
+	printk(KERN_DEBUG "wpantap: prepare to initialize wpantap...\n");
 	int err;
 	err = fakelb_init_module();
 	if(err != 0) goto err_fakelb;
@@ -680,7 +638,7 @@ static __init int wpantap_init(void)
 	err = file_dev_init();
 	if(err != 0) goto err_miscdev;
 	
-	printk(KERN_INFO "wpantap started succesfully\n");
+	printk(KERN_INFO "wpantap: started succesfully\n");
 
 	return 0;
 
@@ -698,7 +656,7 @@ static __exit void wpantap_deinit(void)
 	fake_remove_module();
 	ringbuf_deinit(&rbuf);
 	file_dev_deinit();
-	printk(KERN_INFO "wpantap exited succesfully\n");
+	printk(KERN_INFO "wpantap: exited succesfully\n");
 }
 
 module_init(wpantap_init);
