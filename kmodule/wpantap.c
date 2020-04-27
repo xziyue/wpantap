@@ -486,6 +486,12 @@ static void fake_remove_module(void)
 // kmalloc requires multiple of four
 // this function finds the correct buffer size
 static int get_kmalloc_size(int size){
+    if(size < 0){
+        printk(KERN_ERR "trying to allocate negative size!");
+        return 0;
+    }else if(size == 0){
+        return 0;
+    }
     int mult = size / 4;
     return (mult + 1) * 4;
 }

@@ -45,3 +45,13 @@ After calling `sudo make install`, to update the kernel module, we only need to 
 - Use `test_write` to write packets to the file system node. Use wireshark to monitor if the packet can be captured.
 - Use `test_select` to test the `select` system call. One can run `af_packet_tx` to send some message via the WPAN interface.
 
+### ping Test between two VMs
+Now we are able to run ping test between two VMs.
+
+- On both VMs, compile, install and run `wpantap`
+- On both VMs, run `./test/lowpan_setup.sh` to configure lowpan network
+- Configure the IP address in `./test/vpn/vpn_p2p.py` accordingly.
+- Run wireshark with `ip netns exec wpan0 wireshark -kSl -i lowpan0 &`
+- On both VMs, run VPN program with `python3`
+- Run ping utility with `ip netns exec wpan0 ping6 ff02::1%lowpan0`
+

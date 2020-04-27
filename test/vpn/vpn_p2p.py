@@ -41,5 +41,5 @@ while True:
         print('Received a packet ({}) from UDP socket'.format(len(buf)))
         # when a packet arrives via socket, it has FCS
         # we need to discard the FCS before writing it into wpantap
-        os.write(tapfd, new_buf[:-2])
+        os.write(tapfd, buf[:-2])
     
