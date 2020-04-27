@@ -14,6 +14,8 @@
 #include <linux/spinlock.h>
 #include <net/mac802154.h>
 #include <net/cfg802154.h>
+#include <linux/poll.h>
+#include <linux/wait.h>
 
 // ring buffer for temporary packet storage
 static DEFINE_SPINLOCK(ringbuf_spin);
@@ -590,13 +592,60 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	return total_len;
 }
 
+static DECLARE_WAIT_QUEUE_HEAD(wpantap_chr_wait);
+
+static __poll_t wpantap_chr_poll(struct file *file, poll_table *wait){
+	
+	int rbempty;
+	__poll_t mask = 0;
+	
+	poll_wait(file, &wpantap_chr_wait, wait);
+	
+	// check if the driver is writable
+	// first of all, get device pointer
+	bool suspended = false;
+	
+	struct fakelb_phy *phy;
+	read_lock_bh(&fakelb_ifup_phys_lock);
+
+	list_for_each_entry(phy, &fakelb_ifup_phys, list_ifup) {
+		suspended = phy->suspended;
+	}
+
+	read_unlock_bh(&fakelb_ifup_phys_lock);
+	
+	
+	if (!suspended){
+		printk(KERN_DEBUG "wpantap: polling-device writable\n");
+		mask |= POLLOUT | POLLWRNORM;
+	}else{
+		printk(KERN_DEBUG "wpantap: polling-device suspended, not writable\n");
+	}
+	
+	// check if there is data in ring buffer
+	spin_lock_bh(&ringbuf_spin);
+
+	rbempty = ringbuf_is_empty(&rbuf);
+		
+	spin_unlock_bh(&ringbuf_spin);
+	
+	
+	if(rbempty != 1){
+		printk(KERN_DEBUG "wpantap: polling-data avaliable for read\n");
+		mask |= POLLIN | POLLRDNORM;
+	}else{
+		printk(KERN_DEBUG "wpantap: polling-NO data avaliable for read\n");
+	}
+
+	return mask;
+}
 
 static const struct file_operations wpantap_fops = {
 	.owner	= THIS_MODULE,
 	.llseek = no_llseek,
 	.read_iter  = wpantap_chr_read_iter,
 	.write_iter = wpantap_chr_write_iter,
-	//.poll	= tun_chr_poll,
+	.poll	 = wpantap_chr_poll,
 	//.unlocked_ioctl	= tun_chr_ioctl,
 };
 

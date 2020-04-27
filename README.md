@@ -10,7 +10,8 @@ Authors:
 
 - [x] Implement file system read
 - [x] Implement file system write
-- [ ] Implement file system polling
+- [x] Implement file system polling
+- [ ] Replace device lookup loop with a specific device pointer
 - [ ] Optimize FCS
 
 ## Building
@@ -42,4 +43,5 @@ After calling `sudo make install`, to update the kernel module, we only need to 
 - In the testing folder, run `af_packet_tx` to send some packets to WPAN interface
 - Use `test_read` to read packets from file system node. You can use `sudo ./test_read | xxd` to see the hex output.
 - Use `test_write` to write packets to the file system node. Use wireshark to monitor if the packet can be captured.
+- Use `test_select` to test the `select` system call. One can run `af_packet_tx` to send some message via the WPAN interface.
 
