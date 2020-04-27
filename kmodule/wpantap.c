@@ -33,6 +33,35 @@ static DEFINE_SPINLOCK(ringbuf_spin);
 #define RINGBUF_SIZE 2048
 
 
+static void* kmalloc_safe(int size){
+    int mult;
+    int total_size;
+    void *ptr;
+    
+    if(size < 0){
+        printk(KERN_ERR "wpantap: trying to allocate negative size!");
+        return NULL;
+    }else if(size == 0){
+        printk(KERN_ERR "wpantap: trying to allocate zero size!");
+        return NULL;
+    }
+    
+    // make sure the size is four-byte aligned
+    mult = size / 4;
+    total_size = mult * 4;
+    if (total_size < size){
+        total_size += 4;
+    }
+    
+    ptr = kmalloc(total_size, GFP_KERNEL);
+    if(ptr == NULL){
+        printk(KERN_ERR "wpantap: kmalloc_safe-unable to allocate %d bytes", total_size);
+    }
+    
+    return ptr;
+}
+
+
 struct ringbuf_t
 {
 	void *buf;
@@ -48,7 +77,7 @@ static struct ringbuf_t rbuf;
 // returns 0 if init is successful
 static int ringbuf_init(struct ringbuf_t *rb)
 {
-	rb->buf = kmalloc(RINGBUF_SIZE, GFP_KERNEL);
+	rb->buf = kmalloc_safe(RINGBUF_SIZE);
 	if(rb->buf == NULL){
 		printk(KERN_ERR "wpantap: unable to allocate %d bytes for ring buffer.\n", RINGBUF_SIZE);
 		return -ENOMEM;
@@ -483,18 +512,7 @@ static void fake_remove_module(void)
 	platform_device_unregister(ieee802154fake_dev);
 }
 
-// kmalloc requires multiple of four
-// this function finds the correct buffer size
-static int get_kmalloc_size(int size){
-    if(size < 0){
-        printk(KERN_ERR "trying to allocate negative size!");
-        return 0;
-    }else if(size == 0){
-        return 0;
-    }
-    int mult = size / 4;
-    return (mult + 1) * 4;
-}
+
 
 static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -502,7 +520,6 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	ssize_t len = iov_iter_count(to);
 	ssize_t size = 0;
 	ssize_t ret;
-	int kmalloc_size = 0;
 	int rbempty;
 	void *data;
 
@@ -527,10 +544,9 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 				printk(KERN_ERR "wpantap: no data in the buffer to fetch\n");
 				goto term;
 			}
-			kmalloc_size = get_kmalloc_size(size);
-			data = kmalloc(kmalloc_size, GFP_KERNEL);
+			data = kmalloc_safe(size);
 			if(data == NULL){
-				printk(KERN_ERR "wpantap: unable to allocate %d bytes for reading\n", kmalloc_size);
+				printk(KERN_ERR "wpantap: unable to allocate %d bytes for reading\n", (int)size);
 				goto mem_err;
 			}
 			
@@ -589,16 +605,15 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	// assume the packets acquired from user space doesn't have FCS
 	int total_len = iov_iter_count(from);
 	
-	int kmalloc_size = get_kmalloc_size(total_len);
-	void *buf = kmalloc(kmalloc_size, GFP_KERNEL);
-	
 	printk_dbg(KERN_DEBUG "wpantap: entering write opration-incoming size %d\n", total_len);
 	
 	printk_dbg(KERN_DEBUG "wpantap: padding incoming user packet with 2 byte FCS...\n");
 	total_len += 2;
 	
+	void *buf = kmalloc_safe(total_len);
+		
 	if(buf == NULL){
-		printk(KERN_ERR "wpantap: unable to allocate %d bytes fo writing\n", kmalloc_size);
+		printk(KERN_ERR "wpantap: unable to allocate %d bytes fo writing\n", total_len);
 		return -ENOMEM;
 	}
 	
