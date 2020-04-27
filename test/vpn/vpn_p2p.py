@@ -30,14 +30,16 @@ signal.signal(signal.SIGINT, sig_int)
 
 while True:
 
-    rfds, _, _ = select.select([sockfd, tapfd], [], [], 0)
+    rfds, _, _ = select.select([sockfd, tapfd], [], [], 0.5)
     
     if tapfd in rfds:
         buf = os.read(tapfd, 1024)
         print('Received a packet ({}) from wpantap'.format(len(buf)))
         sock.sendto(buf, peer_addr)
     if sockfd in rfds:
-        buf = sock.recvfrom(1024)
+        buf, _ = sock.recvfrom(1024)
         print('Received a packet ({}) from UDP socket'.format(len(buf)))
-        os.write(tapfd, buf)
+        # when a packet arrives via socket, it has FCS
+        # we need to discard the FCS before writing it into wpantap
+        os.write(tapfd, new_buf[:-2])
     

@@ -29,7 +29,7 @@
 // ring buffer for temporary packet storage
 static DEFINE_SPINLOCK(ringbuf_spin);
 
-// the size of ring buffer
+// the size of ring buffer (must be four-byte aligned!)
 #define RINGBUF_SIZE 2048
 
 
@@ -483,6 +483,12 @@ static void fake_remove_module(void)
 	platform_device_unregister(ieee802154fake_dev);
 }
 
+// kmalloc requires multiple of four
+// this function finds the correct buffer size
+static int get_kmalloc_size(int size){
+    int mult = size / 4;
+    return (mult + 1) * 4;
+}
 
 static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
@@ -490,6 +496,7 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	ssize_t len = iov_iter_count(to);
 	ssize_t size = 0;
 	ssize_t ret;
+	int kmalloc_size = 0;
 	int rbempty;
 	void *data;
 
@@ -514,10 +521,10 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 				printk(KERN_ERR "wpantap: no data in the buffer to fetch\n");
 				goto term;
 			}
-			
-			data = kmalloc(size, GFP_KERNEL);
+			kmalloc_size = get_kmalloc_size(size);
+			data = kmalloc(kmalloc_size, GFP_KERNEL);
 			if(data == NULL){
-				printk(KERN_ERR "wpantap: unable to allocate %d bytes for reading\n", (int)size);
+				printk(KERN_ERR "wpantap: unable to allocate %d bytes for reading\n", kmalloc_size);
 				goto mem_err;
 			}
 			
@@ -575,7 +582,9 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 {	
 	// assume the packets acquired from user space doesn't have FCS
 	int total_len = iov_iter_count(from);
-	void *buf = kmalloc(total_len, GFP_KERNEL);
+	
+	int kmalloc_size = get_kmalloc_size(total_len);
+	void *buf = kmalloc(kmalloc_size, GFP_KERNEL);
 	
 	printk_dbg(KERN_DEBUG "wpantap: entering write opration-incoming size %d\n", total_len);
 	
@@ -583,7 +592,7 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	total_len += 2;
 	
 	if(buf == NULL){
-		printk(KERN_ERR "wpantap: unable to allocate %d bytes fo writing\n", (int)total_len);
+		printk(KERN_ERR "wpantap: unable to allocate %d bytes fo writing\n", kmalloc_size);
 		return -ENOMEM;
 	}
 	
