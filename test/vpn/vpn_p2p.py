@@ -30,7 +30,7 @@ signal.signal(signal.SIGINT, sig_int)
 
 while True:
 
-    rfds, _, _ = select.select([sockfd, tapfd], [], [], 0.5)
+    rfds, _, _ = select.select([sockfd, tapfd], [], [], 0.001)
     
     if tapfd in rfds:
         buf = os.read(tapfd, 1024)
