@@ -17,6 +17,15 @@
 #include <linux/poll.h>
 #include <linux/wait.h>
 
+// Do not activate printk_dbg unless for debug purposes
+// This will create a large amount of log message which will exhaust
+// file system space in no time
+
+//#define printk_dbg(args...) printk(args)
+
+#define printk_dbg(args...) ;
+
+
 // ring buffer for temporary packet storage
 static DEFINE_SPINLOCK(ringbuf_spin);
 
@@ -111,7 +120,7 @@ static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
 	int size = ringbuf_get_first_data_size(rb);
 	char *cp = (char*)p;
 	
-	printk(KERN_DEBUG "wpantap: copying data from ring buf\n");
+	printk_dbg(KERN_DEBUG "wpantap: copying data from ring buf\n");
 	
 	if (size == 0){
 		printk(KERN_ERR "wpantap: data copy failed!\n");
@@ -119,7 +128,7 @@ static int ringbuf_copy_first_data(struct ringbuf_t *rb, void *p)
 	}
 	
 	/*
-	printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n",
+	printk_dbg(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n",
 		*(char*)ringbuf_ll(rb, rb->head, sizeof(int)),
 		*(char*)ringbuf_ll(rb, rb->head, sizeof(int) + 1),
 		*(char*)ringbuf_ll(rb, rb->head, sizeof(int) + 2),
@@ -137,7 +146,7 @@ static void print_ringbuf_stat(void)
 {
 	struct ringbuf_t *rb = &rbuf;
 	size_t htdist = rb->tail - rb->head;
-	printk(KERN_DEBUG "wpantap: ringbuf stat h:%lu t:%lu d:%lu u:%lu f:%lu c:%d\n",
+	printk_dbg(KERN_DEBUG "wpantap: ringbuf stat h:%lu t:%lu d:%lu u:%lu f:%lu c:%d\n",
 		(size_t)rb->head,
 		(size_t)rb->tail,
 		htdist,
@@ -153,7 +162,7 @@ static int ringbuf_pop_data(struct ringbuf_t *rb)
 	int size = ringbuf_get_first_data_size(rb);
 	int total_size;
 	
-	printk(KERN_DEBUG "wpantap: popping data from ring buffer...\n");
+	printk_dbg(KERN_DEBUG "wpantap: popping data from ring buffer...\n");
 	print_ringbuf_stat();
 
 	if(size == 0){
@@ -190,7 +199,7 @@ static int ringbuf_insert_data(struct ringbuf_t *rb, int size, void *data)
 	rbtail = rb->tail;
 	
 	
-	printk(KERN_DEBUG "wpantap: inserting data (%d) into ring buffer...\n", size);
+	printk_dbg(KERN_DEBUG "wpantap: inserting data (%d) into ring buffer...\n", size);
 	print_ringbuf_stat();
 
 	if(total_size > rb->capacity){
@@ -281,8 +290,8 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	WARN_ON(current_phy->suspended);
 	
 	
-    	printk(KERN_DEBUG "wpantap: sending packet with WPAN device...\n");
-	printk(KERN_DEBUG "wpantap: skb len:%d data_len %d\n", skb->len, skb->data_len);
+	printk_dbg(KERN_DEBUG "wpantap: sending packet with WPAN device...\n");
+	printk_dbg(KERN_DEBUG "wpantap: skb len:%d data_len %d\n", skb->len, skb->data_len);
 	//printk(KERN_DEBUG "first bytes: %02x %02x %02x %02x\n", (char*)skb->data[0], (char*)skb->data[1], (char*)skb->data[2], (char*)skb->data[3]);
 
 	head_len = skb->len - skb->data_len;
@@ -488,7 +497,7 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		return -EBADFD;
 	}
 	
-	printk(KERN_DEBUG "wpantap: entering read opration\n");
+	printk_dbg(KERN_DEBUG "wpantap: entering read opration\n");
 
 	while(1){
 		// busy wait for data
@@ -499,7 +508,7 @@ static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		rbempty = ringbuf_is_empty(&rbuf);
 		if (rbempty == 0){
 			// if there is data to fetch
-			printk(KERN_DEBUG "wpantap: readable buffer found in ring buffer\n");
+			printk_dbg(KERN_DEBUG "wpantap: readable buffer found in ring buffer\n");
 			size = ringbuf_get_first_data_size(&rbuf);
 			if (size == 0){
 				printk(KERN_ERR "wpantap: no data in the buffer to fetch\n");
@@ -568,9 +577,9 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 	int total_len = iov_iter_count(from);
 	void *buf = kmalloc(total_len, GFP_KERNEL);
 	
-	printk(KERN_DEBUG "wpantap: entering write opration-incoming size %d\n", total_len);
+	printk_dbg(KERN_DEBUG "wpantap: entering write opration-incoming size %d\n", total_len);
 	
-	printk(KERN_DEBUG "wpantap: padding incoming user packet with 2 byte FCS...\n");
+	printk_dbg(KERN_DEBUG "wpantap: padding incoming user packet with 2 byte FCS...\n");
 	total_len += 2;
 	
 	if(buf == NULL){
@@ -616,10 +625,10 @@ static __poll_t wpantap_chr_poll(struct file *file, poll_table *wait){
 	
 	
 	if (!suspended){
-		printk(KERN_DEBUG "wpantap: polling-device writable\n");
+		printk_dbg(KERN_DEBUG "wpantap: polling-device writable\n");
 		mask |= POLLOUT | POLLWRNORM;
 	}else{
-		printk(KERN_DEBUG "wpantap: polling-device suspended, not writable\n");
+		printk_dbg(KERN_DEBUG "wpantap: polling-device suspended, not writable\n");
 	}
 	
 	// check if there is data in ring buffer
@@ -631,10 +640,10 @@ static __poll_t wpantap_chr_poll(struct file *file, poll_table *wait){
 	
 	
 	if(rbempty != 1){
-		printk(KERN_DEBUG "wpantap: polling-data avaliable for read\n");
+		printk_dbg(KERN_DEBUG "wpantap: polling-data avaliable for read\n");
 		mask |= POLLIN | POLLRDNORM;
 	}else{
-		printk(KERN_DEBUG "wpantap: polling-NO data avaliable for read\n");
+		printk_dbg(KERN_DEBUG "wpantap: polling-NO data avaliable for read\n");
 	}
 
 	return mask;
@@ -676,7 +685,7 @@ static void file_dev_deinit(void)
 
 static __init int wpantap_init(void)
 {	
-	printk(KERN_DEBUG "wpantap: prepare to initialize wpantap...\n");
+	printk_dbg(KERN_DEBUG "wpantap: prepare to initialize wpantap...\n");
 	int err;
 	err = fakelb_init_module();
 	if(err != 0) goto err_fakelb;
