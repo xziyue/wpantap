@@ -512,7 +512,22 @@ static void fake_remove_module(void)
 	platform_device_unregister(ieee802154fake_dev);
 }
 
+<<<<<<< HEAD
 
+=======
+// kmalloc requires multiple of four
+// this function finds the correct buffer size
+static int get_kmalloc_size(int size){
+    if(size < 0){
+        printk(KERN_ERR "wpantap: trying to allocate negative size!");
+        return 0;
+    }else if(size == 0){
+        return 0;
+    }
+    int mult = size / 4;
+    return (mult + 1) * 4;
+}
+>>>>>>> 21bb272077a2a4560bff89de1229641fe63f2bb2
 
 static ssize_t wpantap_chr_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
