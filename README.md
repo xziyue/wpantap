@@ -17,7 +17,7 @@ Authors:
 ## Building
 
 - Tested on Ubuntu 18.04
-- May need to install [wpan-tools](https://github.com/linux-wpan/wpan-tools)
+- Need to install [wpan-tools](https://github.com/linux-wpan/wpan-tools) for tests to work.
 
 The kernel module source is under `./kmodule`.
 
