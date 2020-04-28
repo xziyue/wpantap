@@ -49,8 +49,8 @@ After calling `sudo make install`, to update the kernel module, we only need to 
 Now we are able to run ping test between two VMs.
 
 - On both VMs, compile, install and run `wpantap`
-- On both VMs, run `./test/lowpan_setup.sh` to configure lowpan network
-- Configure the IP address in `./test/vpn/vpn_p2p.py` accordingly.
+- On both VMs, run `./test/lowpan_setup.sh` to configure lowpan network. (If you encounter an error, run this script multiple times.)
+- Configure the IP address for VPN programs using JSON file (according to README in VPN folder).
 - Run wireshark with `ip netns exec wpan0 wireshark -kSl -i lowpan0 &`
 - On both VMs, run VPN program with `python3`
 - Run ping utility with `ip netns exec wpan0 ping6 ff02::1%lowpan0`
