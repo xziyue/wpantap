@@ -2,12 +2,18 @@ import socket
 import select
 import signal
 import os
+import json
 
+if not os.path.exists('vpn_p2p_config.json'):
+    raise RuntimeError('Unable to find VPN config. Please set the config file according to README.')
 
-# TODO: change source/dst address accordingly
-my_addr = ('10.0.2.5', 12001)
-peer_addr = ('10.0.2.6', 12001)
+with open('vpn_p2p_config.json', 'r') as infile:
+    config = json.load(infile)
+my_addr = (config['me']['ip'], config['me']['port'])
+peer_addr = (config['peer']['ip'], config['peer']['port'])
 
+print('my address:', my_addr)
+print('peer address:', peer_addr)
 
 # connect UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

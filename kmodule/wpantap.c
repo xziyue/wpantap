@@ -32,7 +32,8 @@ static DEFINE_SPINLOCK(ringbuf_spin);
 // the size of ring buffer (must be four-byte aligned!)
 #define RINGBUF_SIZE 2048
 
-
+// allocate buffer in kernel space safely
+// guarantees four-byte alignment
 static void* kmalloc_safe(int size){
     int mult;
     int total_size;
