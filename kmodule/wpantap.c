@@ -633,10 +633,10 @@ static ssize_t wpantap_chr_write_iter(struct kiocb *iocb, struct iov_iter *from)
 
 static DECLARE_WAIT_QUEUE_HEAD(wpantap_chr_wait);
 
-static __poll_t wpantap_chr_poll(struct file *file, poll_table *wait){
+static unsigned int wpantap_chr_poll(struct file *file, poll_table *wait){
 	
 	int rbempty;
-	__poll_t mask = 0;
+	unsigned int mask = 0;
 	
 	poll_wait(file, &wpantap_chr_wait, wait);
 	
